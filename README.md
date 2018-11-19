@@ -1,14 +1,10 @@
 # queens
 
-A Clojure library WITH YOUR DESCRIPTION.
-
-## Usage
-
-FIXME
+The Eight Queens puzzle in Clojure
 
 ## License
 
-Copyright © 2018 YOUR NAME
+Copyright © 2018 Steve Miner
 
 Distributed under the Eclipse Public License, same as Clojure.
 
