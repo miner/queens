@@ -1,0 +1,477 @@
+(ns miner.queens
+  "The Eight Queens Puzzle"
+  (:require
+   [clojure.data.int-map :as im]
+   [clojure.math.combinatorics :as c]))
+    
+;; Original idea from blog post:
+;; https://feierabendprojekte.wordpress.com/2018/10/27/high-level-vs-low-level/
+;; source: https://github.com/Azel4231/muc-codingdojo-queens
+;;
+;; https://en.wikipedia.org/wiki/Eight_queens_puzzle
+
+
+;; SEM: use one vector of y-coords for queens.  X-coord implied by index.  We know that
+;; there can be only one queen in any row.
+;;  x-y ([0 1] [1 3] [2 0] [3 2])
+;;  ==> [1 3 0 2]
+;; use reduce-kv to calc diagonals
+
+;; NOTE: this is still a brute force approach, but it's much better than some other
+;; implementations.
+
+
+(defn safe-diagonal? [f qv]
+  ;; f should be +/- for down/up sloped diagonals
+  ;; r collects "diag" value which corresponds to slope, k is x-coord/row, v is y-coord/column
+  (reduce-kv (fn [r k v]
+               (let [diag (f k v)]
+                 (if (contains? r diag)
+                   (reduced false)
+                   (conj r diag))))
+             #{}
+             qv))
+
+;; Note: distinct rows and columns are implied by construction so we don't need to test
+;; those.
+
+(defn valid? [qv]
+  (and (safe-diagonal? + qv)
+       (safe-diagonal? - qv)
+       true))
+
+(defn queens [dimension]
+  (filter valid? (c/permutations (range dimension))))
+
+(defn print-board [qv]
+  (println)
+  (let [row (vec (repeat (count qv) " +"))]
+    (doseq [q qv]
+      (println (apply str (assoc row q " Q")))))
+  (println))
+
+(defn run-queens
+  ([] (run-queens 6))
+  ([dim]
+   (doseq [sol (queens dim)]
+     (print-board sol))
+   (println)))
+
+
+;; converting between representations
+
+;; convert qv vector into XY coordinates
+(defn q2d [qv]
+  (map-indexed vector qv))
+
+;; convert xy coords into vec (x index, y val)
+(defn q2v [q2s]
+  (persistent! (reduce (fn [r [x y]] (assoc! r x y))
+                       (transient (vec (repeat (count q2s) nil)))
+                       q2s)))
+
+
+
+
+
+(def state {:queen-ys []
+            :diagsdown #{}
+            :diagsup #{}})
+
+
+(defn pboard
+  ([qv] (pboard (count qv) qv))
+  ([dim qv]
+   (println)
+   (let [row (vec (repeat dim " +"))]
+     (doseq [q (into qv (repeat (- dim (count qv)) dim))]
+       (println (apply str (assoc row q " Q")))))
+  (println)))
+
+
+
+;; ----------------------------------------------------------------------
+
+;; https://rosettacode.org/wiki/N-queens_problem#Clojure
+
+;; Hacked by SEM to make it more convenient, and zero-based
+;; Actually, much faster than my brute force with type hint for Math/abs
+
+(defn qextends? [v n]
+  (let [k (count v)]
+    (not-any? true?
+      (for [i (range k) :let [vi (v i)]]
+        (or
+          (= vi n)  ;check for shared row
+          (= (- k i) (Math/abs ^long (- n vi)))))))) ;check for shared diagonal
+ 
+(defn qextend [size vs]
+  (for [v vs
+        n (range 0 size) :when (qextends? v n)]
+    (conj v n)))
+ 
+ 
+(defn solutions [size]
+  (nth (iterate #(qextend size %) [[]]) size))
+ 
+;; ----------------------------------------------------------------------
+
+
+(defn add-queen? [v n]
+  (let [cnt (count v)]
+    (reduce-kv (fn [_ i vi]
+                 (if  (or
+                       ;;check for shared row
+                       (= vi n)
+                       ;;check for shared diagonal
+                       (= (- cnt i) (Math/abs ^long (- n vi))))
+                   (reduced false)
+                   true))
+               true
+               v)))
+
+
+ 
+(defn qextend2 [size vs]
+  (for [v vs
+        n (range size) :when (add-queen? v n)]
+    (conj v n)))
+ 
+ 
+(defn solutions2 [size]
+  (nth (iterate #(qextend2 size %) [[]]) size))
+
+;; basically same speed as s2
+(defn solutions3 [size]
+  (loop [n size sols [[]]]
+    (if (zero? n)
+      sols
+      (recur (dec n) (qextend2 size sols)))))
+
+
+
+
+;; SEM need to straighten out x/y row/col consistency.  For graphing, it seems easier to
+;; count rows going down (as x) and col going right (as y).  We add a row and assign a col
+;; to the queen.  But the x/y convention is turned 90 deg in that graphical view.
+
+
+
+(defn abs [n]
+  (if (neg? n) (- n) n))
+
+
+(defn conflict? [v n]
+  (let [cnt (count v)]
+    (reduce-kv (fn [_ i q]
+                 (when (or
+                       ;;check for shared row
+                       (= q n)
+                       ;;check for shared diagonal
+                       (= (- cnt i) (abs (- n q))))
+                   (reduced true)))
+               nil
+               v)))
+
+
+
+
+
+
+
+(defn SLOWERconflict? [v n]
+  (let [cnt (count v)]
+    (reduce-kv (fn [_ i q]
+                 (when (or
+                        ;;check for shared row
+                        (= q n)
+                        ;;check for shared diagonal
+                        (let [diag (- cnt i)]
+                          (or (= (- n q) diag)
+                              (= (- q n) diag)))
+                        )
+                   (reduced true)))
+               nil
+               v)))
+
+(defn add-queens [vs dimension]
+  (for [v vs
+        n (range dimension) :when (not (conflict? v n))]
+    (conj v n)))
+
+(defn sol5 [dimension]
+  (reduce add-queens [[]] (repeat dimension dimension)))
+
+
+
+;; slower versions of q2v
+(defn q2d->qv1 [q2s]
+  (reduce (fn [r [x y]] (assoc r x y)) (vec (repeat (count q2s) nil)) q2s))
+
+(defn q2d->qv [q2s]
+  (reduce (fn [r [x y]] (assoc r x y)) [] (sort-by first q2s)))
+
+(defn q2d->qv3 [q2s]
+  (mapv second (sort-by first q2s)))
+
+(defn q2d->qv6 [q2s]
+  (vec (vals (into (sorted-map) q2s))))
+
+
+
+(defn pdiag
+  ([] (pdiag 6 -))
+  ([dim] (pdiag dim -))
+  ([dim f]
+   (let [offset (min 0 (f (dec dim)))]
+     (dotimes [x dim] (dotimes [y dim] (printf "%3d" (f y x offset))) (println)))))
+
+
+
+;; proving to myself that this calcs the correct diags.  Tricky but it works as relative
+;; offsets get the diagonals in a V pointing left (previous assignments).  Safely ignoring
+;; the future direction -- but we have a little issue with twist again.  Should be a V up if
+;; rows go down.
+
+(defn ydiag [r c dim]
+  ;; (println r c " " (- c r))
+  (dotimes [x dim] (dotimes [y dim]
+                     (if (and (= x r) (= y c))
+                       (print " * ")
+                       (if (= (- r x) (abs (- c y)))
+                         (print " o ")
+                         (print " . "))))
+                     (println)))
+
+
+
+
+(defn num-diags [dim]
+  (inc (* 2 (dec dim))))
+
+;; Trying to have distinct diag1, diag2 and column numbers so they can live in same set
+;; without conflicts
+(defn diag1 [r c dim]
+  (+ r c dim))
+
+(defn diag2 [r c dim]
+  (- r c dim))
+
+
+(defn pdiag1
+  ([] (pdiag1 6))
+  ([dim] 
+   (dotimes [x dim]
+     (dotimes [y dim]
+       (printf "%3d" (diag1 x y dim)))
+     (println))))
+
+(defn pdiag2
+  ([] (pdiag2 6))
+  ([dim] 
+   (dotimes [x dim]
+     (dotimes [y dim]
+       (printf "%3d" (diag2 x y dim)))
+     (println))))
+
+
+;; But the corners have contention in only one direction so you could skip them for looking
+;; for conflicts.  Let's leave that for consideration later.
+
+
+;; qv [1 3 8 ...]
+;; index = row
+;; value = col 
+;; 
+;; diag1 == could put diag1 and diag2 values into sets
+;; #{diag1}
+;; #{diag2}
+;; (diag1 r c dim)
+;; (diag1 r c dim)
+;;
+;; Or guarantee that diag1 and diag2 markers are non-overlapping so they can go into one
+;; set.  Just subtract dim from diag2.  All diag2 are now negative, all diag1 are non-neg.
+
+;; store the diag set in the peek position of the vector for convenience
+
+
+;; Trying to do more caching for diagonals ends up being slower.  Too much bookkeeping with
+;; standard Clojure sets.  However, the optimized dense-int-set in data.int-map actually makes
+;; this code faster.  Probably could have encode the "set" into a long bitmap to be even
+;; faster.
+
+
+;; SEM BUG row (dec (count v)) -- should be (count v) because diags is extra slot
+;; row is the new row we're adding!!!
+
+(defn conflict3? [v n dim]
+  (let [diags (peek v)]
+    (or (contains? diags n)
+        (let [row (count v)]
+          (or (contains? diags (diag1 row n dim))
+              (contains? diags (diag2 row n dim)))))))
+
+
+(defn add-queens2 [vs dimension]
+  (for [v vs
+        n (range dimension) :when (not (conflict3? v n dimension))]
+    (let [diags (peek v)
+          row (count v)]
+      (conj (pop v) n (conj diags n (diag1 row n dimension) (diag2 row n dimension))))))
+
+(defn sol6 [dimension]
+  (map pop
+       (reduce add-queens2 [[(im/dense-int-set)]] (repeat dimension dimension))))
+
+
+;; SEM could be faster with data.int-map checking int-sets ???
+
+;; SEM Potential Bug:  is row (dec (count v)) or just (count v)  ????
+
+;; Actually much faster with the bit encoding for the int sets.
+
+(defn conflict7a? [v n dim]
+  (let [diags (peek v)]
+    (or (bit-test diags n)
+        (let [row (count v)]
+          (or (bit-test diags (diag1 row n dim))
+              (bit-test diags (diag2 row n dim)))))))
+
+
+(defn add-queens7a [vs dimension]
+  (for [v vs
+        n (range dimension) :when (not (conflict7a? v n dimension))]
+    (let [diags (peek v)
+          row (count v)]
+      (conj (pop v) n (-> diags
+                          (bit-set n)
+                          (bit-set (diag1 row n dimension))
+                          (bit-set (diag2 row n dimension)))))))
+
+(defn sol7a [dimension]
+  (map pop
+       (reduce add-queens7a [[0]] (repeat dimension dimension))))
+
+
+
+
+
+;; SEM new idea: encode the full set in each place
+;; decode ints at the end
+
+
+(defn bit-code [r c dim]
+  (-> (bit-set 0 c)
+      (bit-set (diag1 r c dim))
+      (bit-set (diag2 r c dim))))
+
+(defn add-queens8 [vs dimension]
+  (for [v vs
+        :let [diag (peek v) row (count v)]
+        n (range dimension)
+        :let [bcode (bit-code row n dimension)]
+        :when (zero? (bit-and diag bcode))]
+      (conj (pop v) n (bit-or diag bcode))))
+
+(defn sol8 [dimension]
+  (map pop
+       (reduce add-queens8 [[0]] (repeat dimension dimension))))
+
+
+    
+
+
+
+
+;; faster to precompute all the bitcodes and then use them directly
+(defn sol9 [dimension]
+  (let [rc-code (vec (for [r (range dimension)
+                           c (range dimension)]
+                       (-> (bit-set 0 c)
+                           (bit-set (+ r c dimension))
+                           (bit-set (- r c dimension)))))
+        add-queens9 (fn [vs row]
+                      (for [v vs :let [state (peek v)]
+                            col (range dimension) :let [rc (rc-code (+ (* row dimension) col))]
+                                                  :when (zero? (bit-and state rc))]
+                        (conj (pop v) col (bit-or state rc))))]
+    (mapv pop (reduce add-queens9 [[0]] (range dimension)))))
+
+
+
+
+
+
+;; about the same speed as sol9 -- not more readable so not better
+(defn sol9a [dimension]
+  (let [vcode (into [] (mapcat (fn [r] (map (fn [c] (-> (bit-set 0 c)
+                                                        (bit-set (+ r c dimension))
+                                                        (bit-set (- r c dimension))))
+                                            (range dimension))))
+                    (range dimension))
+        add-queens9a (fn [vs row]
+                       (for [v vs
+                             :let [state (peek v)]
+                             n (range dimension)
+                             :let [bcode (vcode (+ (* row dimension) n))]
+                             :when (zero? (bit-and state bcode))]
+                         (conj (pop v) n (bit-or state bcode))))]
+    (mapv pop
+          (reduce add-queens9a [[0]] (range dimension)))))
+
+
+
+
+;; slower to use 2d rc-code
+(defn sol10 [dimension]
+  (let [rc-code (mapv (fn [r] (mapv (fn [c] (-> (bit-set 0 c)
+                                                (bit-set (+ r c dimension))
+                                                (bit-set (- r c dimension))))
+                                    (range dimension)))
+                      (range dimension))
+        
+        add-queens10 (fn [vs row]
+                       (for [v vs
+                             :let [state (peek v)]
+                             n (range dimension)
+                             :let [bc (get-in rc-code [row n])]
+                             :when (zero? (bit-and state bc))]
+                         (conj (pop v) n (bit-or state bc))))]
+    (map pop
+         (reduce add-queens10 [[0]] (range dimension)))))
+
+
+
+
+
+
+
+(defn hexblocks
+  ([str size] (hexblocks nil str size))
+  ([bs remaining size]
+   (let [len (.length ^String remaining)]
+     (if (<= len size)
+       (conj bs remaining)
+       (recur (conj bs (subs remaining (- len size))) (subs remaining 0 (- len size)) size)))))
+
+
+(defn phex [n] 
+  (doseq [b (hexblocks (format "0x%016X" n) 4)]
+    (print b ""))
+  (println))
+
+
+(def ^:constant z64 (apply str (repeat 64 "0")))
+
+(defn bin [n]
+  (let [bstr (Long/toBinaryString n)
+        len (.length ^String bstr)]
+    (str (subs z64 0 (- 64 len)) bstr)))
+
+(defn pbin [n]
+  (doseq [b (hexblocks (bin n) 4)]
+    (print b ""))
+  (println))
+
+
+
