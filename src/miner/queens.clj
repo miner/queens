@@ -18,7 +18,33 @@
 ;; SEM changed to 0-based, which is natural for Clojure.
 ;; Nice, short definition with only standard Clojure. Not especially fast but good enough.
 
+(set! *unchecked-math* :warn-on-boxed)
+
+
+;; somewhat faster than (c/permuations (range n))
+(defn range-permutations
+  "Returns an eager sequence of vectors representing the permutations of the half-open
+  range [0, N)."
+  [^long n]
+  {:pre [(not (neg? n))]}
+  (reduce (fn [vs cnt]
+            (reduce (fn [acc vvv]
+                      (reduce-kv (fn [r i x] (conj r (assoc vvv i cnt cnt x)))
+                                 (conj acc (conj vvv cnt))
+                                 vvv))
+                    ()
+                    vs))
+          (list [])
+          (range n)))
+
+
 (defn rosetta-queens [n]
+  (filter (fn [x] (every? #(apply distinct? (map-indexed % x)) [+ -]))
+          (range-permutations n)))
+
+
+
+(defn ros-queens [n]
   (filter (fn [x] (every? #(apply distinct? (map-indexed % x)) [+ -]))
           (c/permutations (range n))))
 
@@ -34,7 +60,32 @@
 
 
 
+;;; SEM -- try a deftype for Richards
+;;;  maybe even for your queens instead of bitwise
 
+;; (deftype Richards
+;;     [^long mask
+;;      ^long qcols
+;;      ^long ldiag
+;;      ^long rdiag
+;;      ^long conflicts]
+;; 
+;;   RichardsOps
+;;   (add-queen [this col]
+;;     (when-not (zero? conflicts)
+;;       (let [open-bits (bit-and-not mask conflicts)
+;; 
+;; 
+;; (defn empty-richards [mask]
+;;   (Richards. mask 0 0 0 0)))
+;; 
+;; (defn add-queen [rich col] ...)
+;; do shifts and merge conflicts
+             
+
+;; SEM new idea : don't seq open-bits
+;;  just recur on the lowest bit
+;;  if none -- go on
 
 
 
@@ -50,8 +101,8 @@
 
 
 (defn print-board
-  ([qv] (print-board (inc (reduce max 5 qv)) qv))
-  ([dim qv]
+  ([qv] (print-board (inc ^long (reduce max 5 qv)) qv))
+  ([^long dim qv]
    (println)
    (let [row (vec (take (inc dim) (cycle [" +" " -"])))]
      (dotimes [r dim]
@@ -75,13 +126,13 @@
           q2s))
 
 
-(defn abs [n]
+(defn abs [^long n]
   (if (neg? n) (- n) n))
 
 
-(defn conflict? [v n]
+(defn conflict? [v ^long n]
   (let [cnt (count v)]
-    (reduce-kv (fn [_ i q]
+    (reduce-kv (fn [_ ^long i ^long q]
                  (when (or
                        ;;check for shared row
                        (= q n)
@@ -103,7 +154,7 @@
 
 (defn pdiag1
   ([] (pdiag1 6))
-  ([dim] 
+  ([^long dim] 
    (dotimes [x dim]
      (dotimes [y dim]
        (printf "%3d" (- x y dim)))
@@ -111,7 +162,7 @@
 
 (defn pdiag2
   ([] (pdiag2 6))
-  ([dim] 
+  ([^long dim] 
    (dotimes [x dim]
      (dotimes [y dim]
        (printf "%3d" (+ x y dim)))
@@ -147,7 +198,24 @@
 
 ;; the extra bit-test on col speeds things up a bit
 
-(defn queens [dimension]
+(defn queens [^long dimension]
+  {:pre [(<= 0 dimension 13)]}
+  (let [rc-code (fn [^long r ^long c] (bit-or (bit-shift-left 1 c)
+                                              (bit-shift-left 1 (+ r c dimension))
+                                              (bit-shift-left 1 (- r c dimension))))
+
+        add-queens (fn [qvs row]
+                     (for [qv qvs :let [^long conflicts (peek qv)]
+                           col (range dimension)
+                           :when (not (bit-test conflicts col))
+                           :let [^long rc (rc-code row col)]
+                           :when (zero? (bit-and conflicts rc))]
+                       (conj (pop qv) col (bit-or conflicts rc))))]
+    
+    (map pop (reduce add-queens [[0]] (range dimension)))))
+
+#_
+(defn no-hint-queens [dimension]
   {:pre [(<= 0 dimension 13)]}
   (let [rc-code (fn [r c] (bit-or (bit-shift-left 1 c)
                                   (bit-shift-left 1 (+ r c dimension))
@@ -162,6 +230,7 @@
                        (conj (pop qv) col (bit-or conflicts rc))))]
     
     (map pop (reduce add-queens [[0]] (range dimension)))))
+
 
 
 
@@ -219,19 +288,20 @@
 ;; existing bit patterns.
 
 
-(defn bqueens [dimension]
-  (let [mask (dec (bit-set 0 dimension))
+;; slightly faster than richards-queens but doesn't do clever bit on colmask
+(defn bqueens [^long dimension]
+  (let [mask (dec ^long (bit-set 0 dimension))
         add-queens (fn [qvs row]
                      (for [qv qvs :let [md (meta qv)
                                         rdiag (::rdiag md 0)
                                         ldiag (::ldiag md 0)
                                         qcols (::qcols md 0)]
-                           col (range dimension)
-                           :when (zero? (bit-and (bit-or rdiag ldiag qcols)
+                           ^long col (range dimension)
+                           :when (zero? (bit-and (bit-or ^long rdiag ^long ldiag ^long qcols)
                                                  (bit-shift-left 1 col))) ]
                        (with-meta (conj qv col)
-                         {::rdiag (unsigned-bit-shift-right (bit-set rdiag col) 1)
-                          ::ldiag (bit-and mask (bit-shift-left (bit-set ldiag col) 1))
+                         {::rdiag (unsigned-bit-shift-right ^long (bit-set rdiag col) 1)
+                          ::ldiag (bit-and mask (bit-shift-left ^long (bit-set ldiag col) 1))
                           ::qcols (bit-set qcols col)})))]
     (reduce add-queens [[]] (range dimension))))
 
@@ -242,22 +312,23 @@
 (defn calc-qcols [qv]
   (reduce bit-set 0 qv))
 
-(defn calc-ldiag [qv dim]
+(defn calc-ldiag [qv ^long dim]
   (bit-and (dec (bit-shift-left 1 dim))
-           (reduce (fn [ldiag q] (bit-shift-left (bit-set ldiag q) 1)) 0 qv)))
+           ^long (reduce (fn [^long ldiag ^long q] (bit-shift-left ^long (bit-set ldiag q) 1)) 0 qv)))
 
-(defn calc-rdiag [qv dim]
+(defn calc-rdiag [qv ^long dim]
   (bit-and (dec (bit-shift-left 1 dim))
-           (reduce (fn [rdiag q] (unsigned-bit-shift-right (bit-set rdiag q) 1)) 0 qv)))
+           ^long (reduce (fn [rdiag q] (unsigned-bit-shift-right ^long (bit-set rdiag q) 1)) 0 qv)))
 
 
 
 ;; Pretty good but not as fast as more bit twiddly rqueens
 
-(defn richards-queens [dimension]
+;; slightly faster to use explicit key destructing rather than cool ::keys
+(defn richards-queens [^long dimension]
   (let [mask (dec (bit-shift-left 1 dimension))
         
-        open-bitmasks (fn [conflicts]
+        open-bitmasks (fn [^long conflicts]
                         (loop [bs () n (bit-and-not mask conflicts)]
                           (if (zero? n)
                             bs
@@ -265,8 +336,11 @@
                               (recur (conj bs b) (bit-xor n b))))))
         
         add-queens (fn [qvs]
-                     (for [qv qvs :let [{::keys [rdiag ldiag qcols]} (meta qv)]
-                           colmask (open-bitmasks (bit-or rdiag ldiag qcols)) ]
+                     (for [qv qvs :let [m (meta qv)
+                                        ^long rdiag (::rdiag m)
+                                        ^long ldiag (::ldiag m)
+                                        ^long qcols (::qcols m)]
+                           ^long colmask (open-bitmasks (bit-or rdiag ldiag qcols)) ]
                        (with-meta (conj qv (Long/numberOfTrailingZeros colmask))
                          {::rdiag (unsigned-bit-shift-right (bit-or rdiag colmask) 1)
                           ::ldiag (bit-and mask (bit-shift-left (bit-or ldiag colmask) 1))
@@ -278,10 +352,15 @@
         (recur (dec row) (add-queens solutions))))))
 
 
-(defn r5-queens [dimension]
+
+
+
+
+
+(defn richards-queens-keys [^long dimension]
   (let [mask (dec (bit-shift-left 1 dimension))
         
-        open-bitmasks (fn [conflicts]
+        open-bitmasks (fn [^long conflicts]
                         (loop [bs () n (bit-and-not mask conflicts)]
                           (if (zero? n)
                             bs
@@ -289,7 +368,34 @@
                               (recur (conj bs b) (bit-xor n b))))))
         
         add-queens (fn [qvs]
-                     (for [qv qvs :let [{::keys [rdiag ldiag qcols]
+                     (for [qv qvs :let [{::keys [rdiag ldiag qcols]} (meta qv)]
+                           colmask (open-bitmasks (bit-or ^long rdiag ^long ldiag ^long qcols)) ]
+                       (with-meta (conj qv (Long/numberOfTrailingZeros colmask))
+                         {::rdiag (unsigned-bit-shift-right ^long (bit-or ^long rdiag ^long colmask) 1)
+                          ::ldiag (bit-and mask (bit-shift-left (bit-or ^long ldiag ^long colmask) 1))
+                          ::qcols (bit-or ^long qcols ^long colmask)})))]
+
+    (loop [row dimension solutions [(with-meta [] {::rdiag 0 ::ldiag 0 ::qcols 0})]]
+      (if (zero? row)
+        solutions
+        (recur (dec row) (add-queens solutions))))))
+
+
+
+
+#_
+(defn r5-queens [^long dimension]
+  (let [mask (dec (bit-shift-left 1 dimension))
+        
+        open-bitmasks (fn [^long conflicts]
+                        (loop [bs () n (bit-and-not mask conflicts)]
+                          (if (zero? n)
+                            bs
+                            (let [b (Long/lowestOneBit n)]
+                              (recur (conj bs b) (bit-xor n b))))))
+        
+        add-queens (fn [qvs]
+                     (for [qv qvs :let [{::keys [^long rdiag ^long ldiag ^long qcols]
                                          :or {rdiag 0 ldiag 0 qcols 0}} (meta qv)]
                            colmask (open-bitmasks (bit-or rdiag ldiag qcols)) ]
                        (with-meta (conj qv (Long/numberOfTrailingZeros colmask))
@@ -304,10 +410,10 @@
 
 
 ;; NO, none of this list messing is any faster
-(defn zqueens [dimension]
+(defn zqueens [^long dimension]
   (let [mask (dec (bit-shift-left 1 dimension))
         
-        open-bitmasks (fn [conflicts]
+        open-bitmasks (fn [^long conflicts]
                         (loop [bs () n (bit-and-not mask conflicts)]
                           (if (zero? n)
                             bs
@@ -319,12 +425,12 @@
                                         ldiag (second qv)
                                         rdiag (first (nnext qv))
                                         qs (drop 3 qv)
-                                        conflicts (bit-or rdiag ldiag qcols)] 
+                                        conflicts (bit-or ^long rdiag ^long ldiag ^long qcols)] 
                            col (range dimension) :when (not (bit-test conflicts col))]
                        (conj qs
                              col
-                             (unsigned-bit-shift-right (bit-set rdiag col) 1)
-                             (bit-and mask (bit-shift-left (bit-set ldiag col) 1))
+                             (unsigned-bit-shift-right ^long (bit-set rdiag col) 1)
+                             (bit-and mask (bit-shift-left ^long (bit-set ldiag col) 1))
                              (bit-set qcols col)))) ]
 
     (loop [row dimension solutions ['(0 0 0)] ]
@@ -337,10 +443,10 @@
 
 ;; apparently the ::keys destructuring is a bit slower than the obvious way -- maybe this is
 ;; better even though it's longer???
-(defn faster-rich-queens [dimension]
+(defn faster-rich-queens [^long dimension]
   (let [mask (dec (bit-shift-left 1 dimension))
         
-        open-bitmasks (fn [conflicts]
+        open-bitmasks (fn [^long conflicts]
                         (loop [bs () n (bit-and-not mask conflicts)]
                           (if (zero? n)
                             bs
@@ -352,7 +458,38 @@
                                         rdiag (::rdiag md 0)
                                         ldiag (::ldiag md 0)
                                         qcols (::qcols md 0)]
-                           colmask (open-bitmasks (bit-or rdiag ldiag qcols)) ]
+                           colmask (open-bitmasks (bit-or ^long rdiag ^long ldiag ^long qcols)) ]
+                       (with-meta (conj qv (Long/numberOfTrailingZeros colmask))
+                         {::rdiag (unsigned-bit-shift-right ^long (bit-or ^long rdiag ^long colmask) 1)
+                          ::ldiag (bit-and mask (bit-shift-left ^long (bit-or ^long ldiag
+                     ^long colmask) 1))
+                          ::qcols (bit-or ^long qcols ^long colmask)})))]
+
+    (loop [row dimension solutions [[]]]
+      (if (zero? row)
+        solutions
+        (recur (dec row) (add-queens solutions))))))
+
+
+
+
+;; somewhat faster richards, but not always???
+(defn rich-queens2 [^long dimension]
+  (let [mask (dec (bit-shift-left 1 dimension))
+        
+        open-bitmasks (fn [^long conflicts]
+                        (loop [bs () n (bit-and-not mask conflicts)]
+                          (if (zero? n)
+                            bs
+                            (let [b (Long/lowestOneBit n)]
+                              (recur (conj bs b) (bit-xor n b))))))
+        
+        add-queens (fn [qvs]
+                     (for [qv qvs :let [md (meta qv)
+                                        ^long rdiag (::rdiag md 0)
+                                        ^long ldiag (::ldiag md 0)
+                                        ^long qcols (::qcols md 0)]
+                           ^long colmask (open-bitmasks (bit-or rdiag ldiag qcols)) ]
                        (with-meta (conj qv (Long/numberOfTrailingZeros colmask))
                          {::rdiag (unsigned-bit-shift-right (bit-or rdiag colmask) 1)
                           ::ldiag (bit-and mask (bit-shift-left (bit-or ldiag colmask) 1))
@@ -365,14 +502,48 @@
 
 
 
-
-
-
-
-(defn ri-queens [dimension]
-  (let [mask (dec (bit-set 0 dimension))
+;; why isn't this faster than rich-queens2 ???
+(defn rich-queens3 [^long dimension]
+  (let [mask (dec (bit-shift-left 1 dimension))
         
-        open-bitmasks (fn [conflicts]
+        open-bitmasks (fn [^long conflicts]
+                        (loop [bs () n (bit-and-not mask conflicts)]
+                          (if (zero? n)
+                            bs
+                            (let [b (Long/lowestOneBit n)]
+                              (recur (conj bs b) (bit-xor n b))))))
+        
+        add-queens (fn [qvs]
+                     (for [qv qvs :let [md (meta qv)
+                                        ^long rdiag (::rdiag md)
+                                        ^long ldiag (::ldiag md)
+                                        ^long qcols (::qcols md)]
+                           ^long colmask (open-bitmasks (bit-or rdiag ldiag qcols)) ]
+                       (with-meta (conj qv (Long/numberOfTrailingZeros colmask))
+                         {::rdiag (unsigned-bit-shift-right (bit-or rdiag colmask) 1)
+                          ::ldiag (bit-and mask (bit-shift-left (bit-or ldiag colmask) 1))
+                          ::qcols (bit-or qcols colmask)})))]
+
+    (loop [row dimension solutions [(with-meta [] {::rdiag 0 ::ldiag 0 ::qcols 0})]]
+      (if (zero? row)
+        solutions
+        (recur (dec row) (add-queens solutions))))))
+
+
+
+
+
+
+
+
+
+
+
+
+(defn ri-queens [^long dimension]
+  (let [mask (dec ^long (bit-set 0 dimension))
+        
+        open-bitmasks (fn [^long conflicts]
                         (loop [bs () n (bit-and-not mask conflicts)]
                           (if (zero? n)
                             bs
@@ -384,12 +555,12 @@
                                         rdiag (or (::rdiag md) (calc-rdiag qv dimension))
                                         ldiag (or (::ldiag md) (calc-ldiag qv dimension))
                                         qcols (or (::qcols md) (calc-qcols qv))
-                                        conflicts (bit-or rdiag ldiag qcols)]
+                                        conflicts (bit-or ^long rdiag ^long ldiag ^long qcols)]
                            colmask (open-bitmasks conflicts) ]
                        (with-meta (conj qv (Long/numberOfTrailingZeros colmask))
-                         {::rdiag (unsigned-bit-shift-right (bit-or rdiag colmask) 1)
-                          ::ldiag (bit-and mask (bit-shift-left (bit-or ldiag colmask) 1))
-                          ::qcols (bit-or qcols colmask)})))]
+                         {::rdiag (unsigned-bit-shift-right (bit-or ^long rdiag ^long colmask) 1)
+                          ::ldiag (bit-and mask (bit-shift-left (bit-or ^long ldiag ^long colmask) 1))
+                          ::qcols (bit-or ^long qcols ^long colmask)})))]
 
     (loop [row dimension solutions [(with-meta [] {::rdiag 0 ::ldiag 0 ::qcols 0})]]
       (if (zero? row)
@@ -413,10 +584,10 @@
 ;; Surprisingly fast destructuring against vector
 ;; list version was not so good
 ;; SAVE THIS ONE
-(defn svqueens [dimension]
-  (let [mask (dec (bit-set 0 dimension))
+(defn svqueens [^long dimension]
+  (let [mask (dec ^long (bit-set 0 dimension))
         
-        open-bitmasks (fn [conflicts]
+        open-bitmasks (fn [^long conflicts]
                         (loop [bs () n (bit-and-not mask conflicts)]
                           (if (zero? n)
                             bs
@@ -425,12 +596,12 @@
         
         add-queens (fn [qvs]
                      (for [qvx qvs :let [[qv qcols rdiag ldiag] qvx
-                                         conflicts (bit-or rdiag ldiag qcols)]
+                                         conflicts (bit-or ^long rdiag ^long ldiag ^long qcols)]
                            colmask (open-bitmasks conflicts) ]
                        (vector (conj qv (Long/numberOfTrailingZeros colmask))
-                             (bit-or qcols colmask)
-                             (unsigned-bit-shift-right (bit-or rdiag colmask) 1)
-                             (bit-and mask (bit-shift-left (bit-or ldiag colmask) 1))))) ]
+                             (bit-or ^long qcols ^long colmask)
+                             (unsigned-bit-shift-right (bit-or ^long rdiag ^long colmask) 1)
+                             (bit-and mask (bit-shift-left (bit-or ^long ldiag ^long colmask) 1))))) ]
 
     (loop [row dimension solutions [[[] 0 0 0]] ]
       (if (zero? row)
@@ -463,10 +634,10 @@
 
 
 ;; Currently SECOND FASTEST actually, but the word packing into one long doesn't seem tidy
-(defn second-fastest-queens [dimension]
+(defn second-fastest-queens [^long dimension]
   {:pre [(<= 0 dimension 14)]}
   (let [mask (dec (bit-shift-left 1 dimension))
-        free-bitmasks (fn [conflicts]
+        free-bitmasks (fn [^long conflicts]
                         (loop [bs () n (bit-and-not
                                         mask
                                         (bit-or conflicts
@@ -479,7 +650,7 @@
                                                       (bit-shift-left b 16) b))
                                      (bit-xor n b))))))
 
-        shift-conflicts (fn [conflicts colmask]
+        shift-conflicts (fn [^long conflicts ^long colmask]
                           (let [flicts (bit-or conflicts colmask)]
                             (bit-or (bit-and mask flicts)
                                     (bit-and (bit-shift-left mask 16) 
@@ -502,10 +673,10 @@
 
 
 
-(defn rqueens [dimension]
+(defn rqueens [^long dimension]
   {:pre [(<= 0 dimension 14)]}
   (let [mask (dec (bit-shift-left 1 dimension))
-        free-bitmasks (fn [conflicts]
+        free-bitmasks (fn [^long conflicts]
                         (loop [bs () n (bit-and-not
                                         mask
                                         (bit-or conflicts
@@ -518,7 +689,7 @@
                                                       (bit-shift-left b 16) b))
                                      (bit-xor n b))))))
 
-        shift-conflicts (fn [conflicts colmask]
+        shift-conflicts (fn [^long conflicts ^long colmask]
                           (let [flicts (bit-or conflicts colmask)]
                             (bit-or (bit-and mask flicts)
                                     (bit-and (bit-shift-left mask 16) 
@@ -545,10 +716,56 @@
 
 
 ;;; SEM idea: qcols at 48, ldiag 32, rdiag 16, total conflicts at 0
+;;;   not that limit of 14 bit fields saves a 0 bit buffer between fields for safe shifting
+;;;
 ;;; Slightly faster, but more code so not sure
 
+;; hints improve (q 8) - 860 vs 880ms
+
 ;; ACTUALLY -- currently fastest
-(defn fastest-queens [dimension]
+(defn fastest-queens [^long dimension]
+  {:pre [(<= 0 dimension 14)]}
+  (let [mask (dec (bit-shift-left 1 dimension))
+        mask16 (bit-shift-left mask 16)
+        mask32 (bit-shift-left mask 32)
+        mask48 (bit-shift-left mask 48)
+
+        free-bitmasks (fn [^long conflicts]
+                        (loop [bs () n (bit-and-not mask conflicts)]
+                          (if (zero? n)
+                            bs
+                            (let [b (Long/lowestOneBit n)]
+                              (recur (conj bs (bit-or b (bit-shift-left b 16)
+                                                      (bit-shift-left b 32)
+                                                      (bit-shift-left b 48)))
+                                     (bit-xor n b))))))
+
+        shift-conflicts (fn [^long conflicts]
+                          (let [rdiag (bit-and mask16 (unsigned-bit-shift-right conflicts 1))
+                                ldiag (bit-and mask32 (bit-shift-left conflicts 1))
+                                qcols (bit-and mask48 conflicts)]
+                            (bit-or rdiag ldiag qcols
+                                    (unsigned-bit-shift-right rdiag 16)
+                                    (unsigned-bit-shift-right ldiag 32)
+                                    (unsigned-bit-shift-right qcols 48))))
+        
+        add-queens (fn [qvs]
+                     (for [qv qvs :let [^long conflicts (peek qv)]
+                           ^long colmask (free-bitmasks conflicts)]
+                       (conj (pop qv)
+                             (Long/numberOfTrailingZeros colmask)
+                             (shift-conflicts (bit-or conflicts colmask))))) ]
+
+    (loop [x dimension solutions [[0]]]
+      (if (zero? x)
+        (map pop solutions)
+        (recur (dec x) (add-queens solutions))))))
+
+
+
+
+#_
+(defn without-hints-queens [dimension]
   {:pre [(<= 0 dimension 14)]}
   (let [mask (dec (bit-shift-left 1 dimension))
         mask16 (bit-shift-left mask 16)
@@ -590,14 +807,15 @@
 
 
 
-(defn f8queens [dimension]
+
+(defn f8queens [^long dimension]
   {:pre [(<= 0 dimension 14)]}
   (let [mask (dec (bit-shift-left 1 dimension))
         mask16 (bit-shift-left mask 16)
         mask32 (bit-shift-left mask 32)
         mask48 (bit-shift-left mask 48)
 
-        free-bitmasks (fn [conflicts]
+        free-bitmasks (fn [^long conflicts]
                         (loop [bs () n (bit-and-not mask conflicts)]
                           (if (zero? n)
                             bs
@@ -607,7 +825,7 @@
                                                       (bit-shift-left b 48)))
                                      (bit-xor n b))))))
 
-        shift-conflicts (fn [conflicts]
+        shift-conflicts (fn [^long conflicts]
                           (let [rdiag (bit-and mask16 (unsigned-bit-shift-right conflicts 1))
                                 ldiag (bit-and mask32 (bit-shift-left conflicts 1))
                                 qcols (bit-and mask48 conflicts)]
@@ -621,7 +839,7 @@
                            colmask (free-bitmasks conflicts)]
                        (conj (pop qv)
                              (Long/numberOfTrailingZeros colmask)
-                             (shift-conflicts (bit-or conflicts colmask))))) ]
+                             (shift-conflicts (bit-or ^long conflicts ^long colmask))))) ]
 
     (loop [x dimension solutions [[0]]]
       (if (zero? x)
@@ -631,14 +849,14 @@
 
 
 
-(defn f4queens [dimension]
+(defn f4queens [^long dimension]
   {:pre [(<= 0 dimension 14)]}
   (let [mask (dec (bit-shift-left 1 dimension))
         mask16 (bit-shift-left mask 16)
         mask32 (bit-shift-left mask 32)
         mask48 (bit-shift-left mask 48)
 
-        free-bitmasks (fn [conflicts]
+        free-bitmasks (fn [^long conflicts]
                         (loop [bs () n (bit-and-not mask conflicts)]
                           (if (zero? n)
                             bs
@@ -648,7 +866,7 @@
                                                       (bit-shift-left b 48)))
                                      (bit-xor n b))))))
 
-        shift-conflicts (fn [conflicts colmask]
+        shift-conflicts (fn [^long conflicts ^long colmask]
                           (let [flicts (bit-or conflicts colmask)
                                 rdiag (bit-and mask16 (unsigned-bit-shift-right flicts 1))
                                 ldiag (bit-and mask32 (bit-shift-left flicts 1))
@@ -673,26 +891,26 @@
 
 
 
-(defn f3queens [dimension]
+(defn f3queens [^long dimension]
   {:pre [(<= 0 dimension 14)]}
   (let [mask (dec (bit-shift-left 1 dimension))
         mask16 (bit-shift-left mask 16)
         mask32 (bit-shift-left mask 32)
         mask48 (bit-shift-left mask 48)
 
-        free-bitmasks (fn [conflicts]
+        free-bitmasks (fn [^long conflicts]
                         (loop [bs () n (bit-and-not mask conflicts)]
                           (if (zero? n)
                             bs
                             (let [b (Long/lowestOneBit n)]
-                              (recur (conj bs (reduce (fn [bits n] (bit-or bits
+                              (recur (conj bs (reduce (fn [^long bits ^long n] (bit-or bits
                                                                            (bit-shift-left
                                                                             b n)))
                                                       b
                                                       [16 32 48]))
                                      (bit-xor n b))))))
 
-        shift-conflicts (fn [conflicts colmask]
+        shift-conflicts (fn [^long conflicts ^long colmask]
                           (let [flicts (bit-or conflicts colmask)
                                 rdiag (bit-and mask16 (unsigned-bit-shift-right flicts 1))
                                 ldiag (bit-and mask32 (bit-shift-left flicts 1))
@@ -718,14 +936,14 @@
 
 
 ;; Not faster
-(defn f2queens [dimension]
+(defn f2queens [^long dimension]
   {:pre [(<= 0 dimension 14)]}
   (let [mask (dec (bit-shift-left 1 dimension))
         mask16 (bit-shift-left mask 16)
         mask32 (bit-shift-left mask 32)
         mask48 (bit-shift-left mask 48)
 
-        free-bitmasks (fn [conflicts]
+        free-bitmasks (fn [^long conflicts]
                         (loop [bs () n (bit-and-not mask conflicts)]
                           (if (zero? n)
                             bs
@@ -733,7 +951,7 @@
                               (recur (conj bs b)
                                      (bit-xor n b))))))
 
-        shift-conflicts (fn [conflicts colmask]
+        shift-conflicts (fn [^long conflicts ^long colmask]
                           ;; single bit in colmask
                           (let [rdiag (bit-and mask (bit-or (unsigned-bit-shift-right colmask 1)
                                                             (unsigned-bit-shift-right
@@ -762,10 +980,10 @@
 
 
 
-(defn rdqueens [dimension]
+(defn rdqueens [^long dimension]
   {:pre [(<= 0 dimension 14)]}
   (let [mask (dec (bit-shift-left 1 dimension))
-        free-bitmasks (fn [conflicts]
+        free-bitmasks (fn [^long conflicts]
                         (loop [bs () n (bit-and-not
                                         mask
                                         (bit-or conflicts
@@ -778,7 +996,7 @@
                                                       (bit-shift-left b 16) b))
                                      (bit-xor n b))))))
 
-        shift-conflicts (fn [conflicts colmask]
+        shift-conflicts (fn [^long conflicts ^long colmask]
                           (let [flicts (bit-or conflicts colmask)]
                             (bit-or (bit-and mask flicts)
                                     (bit-and (bit-shift-left mask 16) 
@@ -821,3 +1039,5 @@
       (println (fname f))
       (cc/quick-bench (assert (= answer (count (f dim))))))))
 
+
+(set! *unchecked-math* false)
