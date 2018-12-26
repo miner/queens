@@ -621,6 +621,15 @@
 ;; different order but same set.
 ;; lowestOneBit is same as (bit-and n (- n))
 
+;; for CLJS, we might need:
+#_
+(defn lowestOneBit [^long n]
+  (bit-and n (- n)))
+
+#_
+(defn highestOneBit [^long n]
+  
+  )
 
 
 ;;; SEM new idea, unimplemented.  Keep diags in same word so you can shift together.  Have
@@ -762,6 +771,50 @@
         (recur (dec x) (add-queens solutions))))))
 
 
+
+(defn set-words [^long one-bit]
+  (bit-or one-bit
+          (bit-shift-left one-bit 16)
+          (bit-shift-left one-bit 32)
+          (bit-shift-left one-bit 48)))
+
+
+
+(defn fqueens1 [^long dimension]
+  {:pre [(<= 0 dimension 14)]}
+  (let [mask (dec (bit-shift-left 1 dimension))
+        mask16 (bit-shift-left mask 16)
+        mask32 (bit-shift-left mask 32)
+        mask48 (bit-shift-left mask 48)
+
+        free-bitmasks (fn [^long conflicts]
+                        (loop [bs () n (bit-and-not mask conflicts)]
+                          (if (zero? n)
+                            bs
+                            (let [b (Long/lowestOneBit n)]
+                              (recur (conj bs (set-words b))
+                                     (bit-xor n b))))))
+
+        shift-conflicts (fn [^long conflicts]
+                          (let [rdiag (bit-and mask16 (unsigned-bit-shift-right conflicts 1))
+                                ldiag (bit-and mask32 (bit-shift-left conflicts 1))
+                                qcols (bit-and mask48 conflicts)]
+                            (bit-or rdiag ldiag qcols
+                                    (unsigned-bit-shift-right rdiag 16)
+                                    (unsigned-bit-shift-right ldiag 32)
+                                    (unsigned-bit-shift-right qcols 48))))
+        
+        add-queens (fn [qvs]
+                     (for [qv qvs :let [^long conflicts (peek qv)]
+                           ^long colmask (free-bitmasks conflicts)]
+                       (conj (pop qv)
+                             (Long/numberOfTrailingZeros colmask)
+                             (shift-conflicts (bit-or conflicts colmask))))) ]
+
+    (loop [x dimension solutions [[0]]]
+      (if (zero? x)
+        (map pop solutions)
+        (recur (dec x) (add-queens solutions))))))
 
 
 #_
@@ -1018,7 +1071,10 @@
 
 
 
+(set! *unchecked-math* false)
+
 ;;; SEM new idea -- start with all singles [0] [1], etc [N] and run the rest in parallel
+
 
 
 (require '[criterium.core :as cc])
@@ -1038,6 +1094,3 @@
       (println)
       (println (fname f))
       (cc/quick-bench (assert (= answer (count (f dim))))))))
-
-
-(set! *unchecked-math* false)
