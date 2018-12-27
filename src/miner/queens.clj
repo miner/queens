@@ -622,15 +622,88 @@
 ;; lowestOneBit is same as (bit-and n (- n))
 
 ;; for CLJS, we might need:
-#_
-(defn lowestOneBit [^long n]
+
+
+;; Long/lowestOneBit
+(defn lowOneBit [^long n]
   (bit-and n (- n)))
 
-#_
-(defn highestOneBit [^long n]
-  
-  )
+;; almost as fast as Long/numberOfTrailingZeros
+(defn numTrailingZeros [^long n]
+  (if (zero? n)
+    64
+    (let [v (bit-and n (- n))
+          nz-and (fn [^long c ^long mask ^long b] (if-not (zero? (bit-and v mask)) (- c b) c))]
+      (-> 63
+          (nz-and 0x00000000FFFFFFFF 32)
+          (nz-and 0x0000FFFF0000FFFF 16)
+          (nz-and 0x00FF00FF00FF00FF 8)
+          (nz-and 0x0F0F0F0F0F0F0F0F 4)
+          (nz-and 0x3333333333333333 2)
+          (nz-and 0x5555555555555555 1)))))
 
+
+
+
+
+;; too slow -- Try a loop.   Or try a vector with 2^n shift on index???
+(defn trzNO [^long n]
+  (if (zero? n)
+    64
+    (let [v (bit-and n (- n))
+          nz-and (fn [^long c ^long mask ^long b]
+                   (if-not (zero? (bit-and v mask)) (- c b) c))]
+      (reduce-kv nz-and
+                 63
+                 {0x00000000FFFFFFFF 32
+                  0x0000FFFF0000FFFF 16
+                  0x00FF00FF00FF00FF 8
+                  0x0F0F0F0F0F0F0F0F 4
+                  0x3333333333333333 2
+                  0x5555555555555555 1}))))
+
+
+
+(defn trzSLOW [^long n]
+  (if (zero? n)
+    64
+    (let [v (bit-and n (- n))
+          nz-and (fn [^long c ^long mask ^long b]
+                   (if-not (zero? (bit-and v mask)) (- c b) c))]
+      (loop [c 63
+             masks [0x00000000FFFFFFFF 0x0000FFFF0000FFFF 0x00FF00FF00FF00FF
+                    0x0F0F0F0F0F0F0F0F 0x3333333333333333 0x5555555555555555]
+             pows [32 16 8 4 2 1]]
+        (if-let [mask (first masks)]
+          (recur (long (nz-and c mask (first pows))) (rest masks) (rest pows))
+          c)))))
+
+
+(defn slowNumTrailingZeros [^long n]
+  (if (zero? n)
+    64
+    (loop [n n z 0]
+      (if (odd? n)
+        z
+        (recur (unsigned-bit-shift-right n 1) (inc z))))))
+
+
+
+
+(defn test-num-trail [f]
+  (assert (every? #(= (f %) (Long/numberOfTrailingZeros %))
+                  (concat (take 100 (iterate inc Long/MIN_VALUE))
+                          (take 100 (iterate dec Long/MAX_VALUE))
+                          (take 100 (iterate inc Integer/MIN_VALUE))
+                          (take 100 (iterate dec Integer/MAX_VALUE))
+                          (range -1000 1000))))
+  true)
+
+
+(defn test-trail [f]
+  (assert (every? #(= (f %) (Long/numberOfTrailingZeros %))
+                  (range 10000)))
+  true)
 
 ;;; SEM new idea, unimplemented.  Keep diags in same word so you can shift together.  Have
 ;;; to have (- Dimension col) to check backwards diag  but maybe cheaper than extra bit
