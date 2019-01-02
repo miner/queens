@@ -643,8 +643,53 @@
           (nz-and 0x5555555555555555 1)))))
 
 
+(defn numTrailingZeros2 [^long n]
+  (cond (zero? n) 64
+        (bit-test n 0) 0
+        :else (let [v (bit-and n (- n))
+                    nz-and (fn [^long c ^long mask ^long b]
+                             (if-not (zero? (bit-and v mask)) (- c b) c))]
+      (-> 63
+          (nz-and 0x00000000FFFFFFFF 32)
+          (nz-and 0x0000FFFF0000FFFF 16)
+          (nz-and 0x00FF00FF00FF00FF 8)
+          (nz-and 0x0F0F0F0F0F0F0F0F 4)
+          (nz-and 0x3333333333333333 2)
+          (nz-and 0x5555555555555555 1)))))
 
 
+(defn trz-2slow [^long n]
+  (cond (zero? n) 64
+        (odd? n) 0
+        :else     (peek (reduce (fn [[^long v ^long c] ^long p]
+                                  (let [mask (dec (bit-shift-left 1 p))]
+                                    (if (zero? (bit-and v mask))
+                                      [(unsigned-bit-shift-right v p) (+ c p)]
+                                      [v c])))
+                                [n 0]
+                                [32 16 8 4 2 1]))))
+
+;; pretty fast
+(defn trz [^long n]
+  (cond (zero? n) 64
+        (bit-test n 0) 0
+        :else   (loop [v n c 0 p 32]
+                  (if (zero? p)
+                    c
+                    (if (zero? (bit-and v (dec (bit-shift-left 1 p))))
+                      (recur (unsigned-bit-shift-right v p) (+ c p) (quot p 2))
+                      (recur v c (quot p 2)))))))
+
+(defn trz2 [^long n]
+  (cond (zero? n) 64
+        (bit-test n 0) 0
+        :else   (loop [v n c 0 p 32]
+                  (if (zero? p)
+                    c
+                    (if (zero? (bit-and v (dec (bit-shift-left 1 p))))
+                      (recur (unsigned-bit-shift-right v p) (+ c p)
+                             (unsigned-bit-shift-right p 1))
+                      (recur v c (unsigned-bit-shift-right p 1)))))))
 
 ;; too slow -- Try a loop.   Or try a vector with 2^n shift on index???
 (defn trzNO [^long n]
