@@ -6,6 +6,6 @@
 (deftest eight-queens []
   (let [dim 8
         answer-set (set (queens dim))]
-    (doseq [qf [rosetta-queens queens richards-queens fastest-queens]]
+    (doseq [qf [rosetta-queens my-rosetta-queens queens richards-queens fastest-queens xqueens]]
       (is (= answer-set (set (qf dim)))))))
 
