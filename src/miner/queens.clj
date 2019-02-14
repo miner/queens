@@ -80,22 +80,55 @@
 
 
 
-
 (defn queens [^long dimension]
   {:pre [(<= 0 dimension 13)]}
-  (let [rc-code (fn [^long r ^long c] (bit-or (bit-shift-left 1 c)
-                                              (bit-shift-left 1 (+ r c dimension))
-                                              (bit-shift-left 1 (- r c dimension))))
-
-        add-queens (fn [qvs row]
-                     (for [qv qvs :let [^long conflicts (peek qv)]
+  (let [add-queens (fn [qvs ^long row]
+                     (for [qv qvs :let [conflicts (long (peek qv))]
                            col (range dimension)
-                           :let [^long rc (rc-code row col)]
+                           :let [col (long col)
+                                 rc (bit-or (bit-shift-left 1 col)
+                                            (bit-shift-left 1 (+ row col dimension))
+                                            (bit-shift-left 1 (- row col dimension)))]
                            :when (zero? (bit-and conflicts rc))]
                        (conj (pop qv) col (bit-or conflicts rc))))]
     
     (map pop (reduce add-queens [[0]] (range dimension)))))
 
+
+;; slightly faster with questionable type hinting
+(defn queens0 [^long dimension]
+  {:pre [(<= 0 dimension 13)]}
+  (let [add-queens (fn [qvs ^long row]
+                     (for [qv qvs :let [^long conflicts (peek qv)]
+                           col (range dimension)
+                           :let [^long col col
+                                 rc (bit-or (bit-shift-left 1 col)
+                                            (bit-shift-left 1 (+ row col dimension))
+                                            (bit-shift-left 1 (- row col dimension)))]
+                           :when (zero? (bit-and conflicts rc))]
+                       (conj (pop qv) col (bit-or conflicts rc))))]
+    
+    (map pop (reduce add-queens [[0]] (range dimension)))))
+
+
+
+
+;; a bit faster with everything inlined
+(defn queens-inline [^long dimension]
+  {:pre [(<= 0 dimension 13)]}
+  (map pop (reduce (fn [qvs ^long row]
+                     (for [qv qvs :let [^long conflicts (peek qv)]
+                           col (range dimension)
+                           :let [^long col col
+                                 rc (bit-or (bit-shift-left 1 col)
+                                            (bit-shift-left 1 (+ row col dimension))
+                                            (bit-shift-left 1 (- row col dimension)))]
+                           :when (zero? (bit-and conflicts rc))]
+                       (conj (pop qv) col (bit-or conflicts rc))))
+                   [[0]]
+                   (range dimension))))
+
+;; transduce version not faster, probably due to set-up overhead
 
 
 (defn run-queens
@@ -130,17 +163,6 @@
 ;; Interesting insight that per row you only have to worry about Dim diags crossing that
 ;; row, not the totat (* 2 (dec DIM)).  Well, there are still two diags.
 
-;; How fast is it to extract vector of set bits from a long?  Seems like you have to test
-;; bits one by one.  Or do the &- trick to get the least bit multiple times.
-
-
-;; SEM -- no just use the three longs for right-diag left-diag and columns for bookkeeping
-;; Keep the vector qv for state
-;; Maybe use metadata for the bookkeeping longs or keep them in single vector
-
-
-
-;; Pretty good but not as fast as more bit twiddly rqueens
 
 ;; slightly faster to use explicit key destructing rather than cool ::keys
 (defn richards-queens [^long dimension]
@@ -170,11 +192,7 @@
         (recur (dec row) (add-queens solutions))))))
 
 
-
 ;; bit-set is slower than bit-or
-
-
-
 
 ;; experimented with single meta-key and [rd ld qc] vector,  slower!
 
@@ -182,50 +200,8 @@
 ;; sol [qcols rdiag ldiag [qv]]
 ;; sol (list qv qcols rdiag ldiag) -- not so fast
 
-
-
-;; Surprisingly fast destructuring against vector
-;; list version was not so good
-;; SAVE THIS ONE
-(defn svqueens [^long dimension]
-  (let [mask (dec ^long (bit-set 0 dimension))
-        
-        open-bitmasks (fn [^long conflicts]
-                        (loop [bs () n (bit-and-not mask conflicts)]
-                          (if (zero? n)
-                            bs
-                            (let [b (Long/lowestOneBit n)]
-                              (recur (conj bs b) (bit-xor n b))))))
-        
-        add-queens (fn [qvs]
-                     (for [qvx qvs :let [[qv qcols rdiag ldiag] qvx
-                                         conflicts (bit-or ^long rdiag ^long ldiag ^long qcols)]
-                           colmask (open-bitmasks conflicts) ]
-                       (vector (conj qv (Long/numberOfTrailingZeros colmask))
-                             (bit-or ^long qcols ^long colmask)
-                             (unsigned-bit-shift-right (bit-or ^long rdiag ^long colmask) 1)
-                             (bit-and mask (bit-shift-left (bit-or ^long ldiag ^long colmask) 1))))) ]
-
-    (loop [row dimension solutions [[[] 0 0 0]] ]
-      (if (zero? row)
-        (map first solutions)
-        (recur (dec row) (add-queens solutions))))))
-
-
-;;  Loop is faster than reduce for this case where row wasn't being used anyway.
-
-
-
-;; SEM: cheating a bit to limit to 14 bits so the high bit of the 16-bit field is always zero and
-;; never shifts into another field.  Save a couple of bit-ands.   BUT IT WENT SLOWER????
-
-
-;; using lowestOneBit is slightly faster than highestOneBit  -- produces solutions in
-;; different order but same set.
-;; lowestOneBit is same as (bit-and n (- n))
-
 ;; for CLJS, we might need:
-
+;; UNTESTED
 
 ;; Long/lowestOneBit
 (defn lowOneBit [^long n]
@@ -255,67 +231,8 @@
 
 
 
-
-;;; SEM new idea:  Keep diags in same word so you can shift together.  Have
-;;; to have (- Dimension col) to check backwards diag  but maybe cheaper than extra bit
-;;; shift???
-;;;  Need to mask shifted high but can use one spare bit separator and the main mask can be
-;;; combined to clear the spare bit.  Two 32 bits are plenty of space.  Never go above
-;;; DIM=31
-;; or...   clear bit 31 before the rotate left, then you don't need the spare bit
-
-
-;;; SEM use bit-and-not
-
-
-;;; SEM idea: qcols at 48, ldiag 32, rdiag 16, total conflicts at 0
-;;;   not that limit of 14 bit fields saves a 0 bit buffer between fields for safe shifting
-;;;
-;;; Slightly faster, but more code so not sure
-
-;; hints improve (q 8) - 860 vs 880ms
-
-(defn almost-fastest-queens [^long dimension]
-  {:pre [(<= 0 dimension 14)]}
-  (let [mask (dec (bit-shift-left 1 dimension))
-        mask16 (bit-shift-left mask 16)
-        mask32 (bit-shift-left mask 32)
-        mask48 (bit-shift-left mask 48)
-
-        free-bitmasks (fn [^long conflicts]
-                        (loop [bs () n (bit-and-not mask conflicts)]
-                          (if (zero? n)
-                            bs
-                            (let [colmask (bit-shift-left 0x0001000100010001
-                                                          (Long/numberOfTrailingZeros n))]
-                              (recur (conj bs colmask)
-                                     (bit-and-not n colmask))))))
-
-        shift-conflicts (fn [^long conflicts]
-                          (let [rdiag (bit-and mask16 (unsigned-bit-shift-right conflicts 1))
-                                ldiag (bit-and mask32 (bit-shift-left conflicts 1))
-                                qcols (bit-and mask48 conflicts)]
-                            (bit-or rdiag ldiag qcols
-                                    (unsigned-bit-shift-right rdiag 16)
-                                    (unsigned-bit-shift-right ldiag 32)
-                                    (unsigned-bit-shift-right qcols 48))))
-        
-        add-queens (fn [qvs]
-                     (for [qv qvs :let [^long conflicts (peek qv)]
-                           ^long colmask (free-bitmasks conflicts)]
-                       (conj (pop qv)
-                             (Long/numberOfTrailingZeros colmask)
-                             (shift-conflicts (bit-or conflicts colmask))))) ]
-
-    (loop [x dimension solutions [[0]]]
-      (if (zero? x)
-        (map pop solutions)
-        (recur (dec x) (add-queens solutions))))))
-
-
-
-
-;;; loops without consing definitely pays off for speed if not readability.
+;;; Richards approach but smashed into a single long for bookkeeping.  Explicit loop/recur
+;;; for a tiny bit more performance.  Not pretty, but the fastest version I could come up with.
 
 (defn fastest-queens [^long dimension]
   {:pre [(<= 0 dimension 14)]}
@@ -350,18 +267,61 @@
               
               xvs))) ]
 
-    (loop [x dimension solutions (list [0])]
-      (if (zero? x)
-        (map pop solutions)
-        (recur (dec x) (add-queens solutions))))))
+    (mapv pop (nth (iterate add-queens [[0]]) dimension))))
 
 
+
+
+(defn fbits [f n]
+  "Eagerly map `f` over the indices of the 1 bits in long `n`.  Returns a sequence with the
+result corresponding to the most significant bit index first."
+  (reduce (fn [res ^long b]
+            (if (zero? b)
+              (reduced res)
+              (conj res (f (Long/numberOfTrailingZeros b)))))
+          ()
+          ;; Kernigan technique to clear lsb
+          (iterate (fn [^long a] (bit-and a (dec a))) n)))
+
+;; see also https://oeis.org/A129760
+
+
+;; nice that the transducer pays off
+;; pretty good, within 25% but not fastest
+
+(defn xqueens [^long dimension]
+  {:pre [(<= 0 dimension 14)]}
+  (let [mask (dec (bit-shift-left 1 dimension))
+        mask16 (bit-shift-left mask 16)
+        mask32 (bit-shift-left mask 32)
+        mask48 (bit-shift-left mask 48)
+        
+        shift-conflicts (fn [^long conflicts ^long q]
+                          (let [conflicts (bit-or conflicts (bit-shift-left 0x0001000100010001 q))
+                                rdiag (bit-and mask16 (unsigned-bit-shift-right conflicts 1))
+                                ldiag (bit-and mask32 (bit-shift-left conflicts 1))
+                                qcols (bit-and mask48 conflicts)]
+                            (bit-or rdiag ldiag qcols
+                                    (unsigned-bit-shift-right rdiag 16)
+                                    (unsigned-bit-shift-right ldiag 32)
+                                    (unsigned-bit-shift-right qcols 48))))
+        
+        add-queens (fn [qvs]
+                     (into
+                      []
+                      (mapcat (fn [qv]
+                                (let [^long conflicts (peek qv)
+                                      pqv (pop qv)]
+                                  (fbits (fn [^long q] (conj pqv q (shift-conflicts conflicts q)))
+                                         (bit-and-not mask conflicts)))))
+                      qvs))  ]
+    
+    (mapv pop (nth (iterate add-queens [[0]]) dimension))))
+
+;; mapv is only a tiny bit faster, maybe not worth it
 
 
 (set! *unchecked-math* false)
-
-;;; SEM new idea -- start with all singles [0] [1], etc [N] and run the rest in parallel
-
 
 
 (require '[criterium.core :as cc])
@@ -376,13 +336,14 @@
 
 (defn bench [& fs]
   (let [dim 8
-        answer (count (queens dim))]
+        bensum (fn [res] (transduce (map #(reduce + %)) + 0 res))
+        answer (set (queens dim))
+        sum (bensum answer)]
     (doseq [f fs]
       (println)
       (println (fname f))
-      (cc/quick-bench (assert (= answer (count (f dim))))))))
-
-
-(defn bentrz [f]
-  (criterium.core/quick-bench (test-num-trail f)))
-
+      (let [res (f dim)]
+        (assert (and (= (bensum res) sum)
+                     (= (set (f dim)) answer))
+                (str (fname f) " failed")))
+      (cc/quick-bench (bensum (f dim))))))
