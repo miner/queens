@@ -1,4 +1,4 @@
-(defproject com.velisco/queens "0.1.2-SNAPSHOT"
+(defproject com.velisco/queens "0.2.0"
   :description "FIXME: write description"
   :url "https://github.com/miner/queens"
   :license {:name "Eclipse Public License"
