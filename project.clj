@@ -1,5 +1,5 @@
 (defproject com.velisco/queens "0.2.0"
-  :description "FIXME: write description"
+  :description "Eight Queens in Clojure"
   :url "https://github.com/miner/queens"
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
