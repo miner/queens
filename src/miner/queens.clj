@@ -329,9 +329,10 @@ result corresponding to the most significant bit index first."
 
 (defn fname [f]
   (let [stfn (str f)
-        at (str/index-of stfn "@")]
+        at (str/index-of stfn "@")
+        dollar (str/index-of stfn "$")]
     (if at
-      (str/replace (subs stfn (count "miner.queens$") at) \_ \-)
+      (str/replace (subs stfn (inc dollar) at) \_ \-)
       stfn)))
 
 (defn bench [& fs]
