@@ -335,16 +335,20 @@ result corresponding to the most significant bit index first."
       (str/replace (subs stfn (inc dollar) at) \_ \-)
       stfn)))
 
-(defn bench [& fs]
-  (let [dim 8
-        bensum (fn [res] (transduce (map #(reduce + %)) + 0 res))
-        answer (set (queens dim))
-        sum (bensum answer)]
-    (doseq [f fs]
-      (println)
-      (println (fname f))
-      (let [res (f dim)]
-        (assert (and (= (bensum res) sum)
-                     (= (set (f dim)) answer))
-                (str (fname f) " failed")))
-      (cc/quick-bench (bensum (f dim))))))
+(defn bench [& args]
+  (let [dims (or (seq (take-while pos-int? args)) '(8))
+        fs (drop-while pos-int? args)
+        bensum (fn [res] (transduce (map #(reduce + %)) + 0 res))]
+    (when (seq fs)
+      (doseq [dim dims]
+        (let [answer (set ((first fs) dim))
+              sum (bensum answer)]
+          (doseq [f fs]
+            (println)
+            (println (str "(" (fname f) " " dim ")"))
+            (let [res (f dim)]
+              (assert (and (= (bensum res) sum)
+                           (= (set (f dim)) answer))
+                      (str (fname f) " failed")))
+            (cc/quick-bench (bensum (f dim)))))))))
+
