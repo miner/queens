@@ -1,7 +1,9 @@
 (ns miner.queens
   "The Eight Queens Puzzle"
   (:require
-   [clojure.math.combinatorics :as c]))
+   [clojure.math.combinatorics :as c]
+   [criterium.core :as cc]
+   [clojure.string :as str]))
 
 
 ;; slightly faster numeric code with unchecked-math
@@ -270,6 +272,46 @@
     (mapv pop (nth (iterate add-queens [[0]]) dimension))))
 
 
+(defn nth-iter [f init n]
+  (assert (not (neg? (long n))))
+  (loop [r init cnt (long n)]
+    (if (zero? cnt) r (recur (f r) (dec cnt)))))
+
+(defn iqueens [^long dimension]
+  {:pre [(<= 0 dimension 14)]}
+  (let [mask (dec (bit-shift-left 1 dimension))
+        mask16 (bit-shift-left mask 16)
+        mask32 (bit-shift-left mask 32)
+        mask48 (bit-shift-left mask 48)
+
+        shift-conflicts (fn [^long conflicts]
+                          (let [rdiag (bit-and mask16 (unsigned-bit-shift-right conflicts 1))
+                                ldiag (bit-and mask32 (bit-shift-left conflicts 1))
+                                qcols (bit-and mask48 conflicts)]
+                            (bit-or rdiag ldiag qcols
+                                    (unsigned-bit-shift-right rdiag 16)
+                                    (unsigned-bit-shift-right ldiag 32)
+                                    (unsigned-bit-shift-right qcols 48))))
+        
+        add-queens
+        (fn [qvs]
+          (loop [qvs qvs xvs ()]
+            (if-let [qv (first qvs)]
+              (recur (rest qvs)
+                     (let [^long conflicts (peek qv)]
+                       (loop [vs xvs n (bit-and-not mask conflicts)]
+                         (if (zero? n)
+                           vs
+                           (let [q (Long/numberOfTrailingZeros n)
+                                 colmask (bit-shift-left 0x0001000100010001 q)]
+                             (recur (conj vs (conj (pop qv) q
+                                                   (shift-conflicts (bit-or conflicts colmask))))
+                                    (bit-and-not n colmask)))))))
+              
+              xvs))) ]
+
+    (mapv pop (nth-iter add-queens [[0]] dimension))))
+
 
 
 (defn fbits [f n]
@@ -324,8 +366,10 @@ result corresponding to the most significant bit index first."
 (set! *unchecked-math* false)
 
 
-(require '[criterium.core :as cc])
-(require '[clojure.string :as str])
+
+
+
+
 
 (defn fname [f]
   (let [stfn (str f)
@@ -352,3 +396,7 @@ result corresponding to the most significant bit index first."
                       (str (fname f) " failed")))
             (cc/quick-bench (bensum (f dim)))))))))
 
+
+  
+    
+        
