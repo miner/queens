@@ -56,6 +56,9 @@
 ;; use reduce-kv to calc diagonals
 
 
+;;; note: "white on right" is the chess convention for initial board rotation.  In my
+;;; rendering - is white, + is black.
+
 (defn print-board
   ([qv] (print-board (inc ^long (reduce max 5 qv)) qv))
   ([^long dim qv]
@@ -63,7 +66,7 @@
    (let [row (vec (take (inc dim) (cycle [" +" " -"])))]
      (dotimes [r dim]
        (let [q (get qv r)
-             row (if (even? r) (pop row) (subvec row 1))]
+             row (if (odd? r) (pop row) (subvec row 1))]
          (println (apply str (if q (assoc row q " Q") row))))))
    (println)))
 
